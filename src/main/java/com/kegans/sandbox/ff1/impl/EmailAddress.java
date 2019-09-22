@@ -3,8 +3,12 @@ package com.kegans.sandbox.ff1.impl;
 import com.idealista.fpe.config.Alphabet;
 import com.kegans.sandbox.ff1.FPEPrimative;
 
+/**
+ * Example POC of a specific format data
+ */
 public class EmailAddress implements FPEPrimative {
 
+    // a place to hold the value
     String value;
 
     @Override

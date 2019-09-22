@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.StringTokenizer;
@@ -27,7 +28,8 @@ public class GenericHasher {
 
     private static Logger logger = LoggerFactory.getLogger(GenericHasher.class);
 
-    private String alphabetString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private String alphabetString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZåäöÖÄÅ-'";
+//    private String alphabetString = "āăąć̇čďđēėęěğģ'()ī-/0ıĳķ8ļľłņňőř[şabcţdeťfghijkūlmnopqrstuvwxyzżžßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþ-'";
     private char[] alphabetChars;
     private char[] numberChars = "0123456789".toCharArray(); // {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
@@ -42,13 +44,7 @@ public class GenericHasher {
     MessageDigest md = MessageDigest.getInstance("SHA-256");
 
     // a key for if not perItem key mode
-    byte[] key = new byte[]{
-            (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00,
-            (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00,
-            (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00,
-            (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00
-
-    };
+    byte[] key = "abcd1234sihf1234".getBytes();
 
     // tweak for not if perItem tweak mode
     byte[] tweak = new byte[] {(byte) 0xEf5, (byte) 0x03, (byte) 0xF9};
@@ -81,6 +77,7 @@ public class GenericHasher {
     }
 
 
+    // get the key
     public byte[] getKey(String data) {
         if (perItemKey) {
             return md.digest(data.getBytes());
@@ -94,13 +91,19 @@ public class GenericHasher {
     @Async("threadPoolTaskExecutor")
     public CompletableFuture<byte[]> ff1(FPEPrimative data) {
 
-        StringTokenizer st = new StringTokenizer(data.getValue(), data.getDeliminators(), true);
+        StringTokenizer st = new StringTokenizer(data.getValue(), data.getDeliminators(), copyDeliminators);
 
         final byte[][] encoded = new byte[1][1];
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream( );
 
         byte[] mytweak = data.getTweak(data.getValue());
-        byte[] mykey = md.digest(data.getKey());
+        byte[] mykey;
+
+        if (perItemKey) {
+             mykey = md.digest(data.getKey());
+        } else {
+            mykey = key;
+        }
 
         FormatPreservingEncryption formatPreservingEncryption = FormatPreservingEncryptionBuilder
                 .ff1Implementation()
@@ -141,6 +144,14 @@ public class GenericHasher {
     }
 
 
+    public CompletableFuture<byte[]> encrypt(String data) {
+        byte[] tweak = getTweak(data);
+        byte[] key = getKey(data);
+        return encrypt(data, key, tweak);
+    }
+
+
+
     /**
      * The main hashing function,
      *
@@ -148,30 +159,28 @@ public class GenericHasher {
      * @return
      */
     @Async("threadPoolTaskExecutor")
-    public CompletableFuture<byte[]> encrypt(String data) {
+    public CompletableFuture<byte[]> encrypt(String data, byte[] key, byte[] tweak) {
 
         final byte[][] encoded = new byte[1][1];
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream( );
 
-        StringTokenizer st = new StringTokenizer(data, deliminators, true);
+        StringTokenizer st = new StringTokenizer(data, deliminators, copyDeliminators);
 
         st.asIterator().forEachRemaining(word -> {
-
-//            logger.info(String.valueOf(word));
 
             if (String.valueOf(word).length() > 1) {
 
                 if (isNumber((String) word)) {
                     try {
-                        encoded[0] = encryptNumber((String) word);
+                        encoded[0] = encryptNumber((String) word, key, tweak);
                         outputStream.write(encoded[0]);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
                 } else {
                     try {
-                        encoded[0] = encryptWord((String) word);
+                        encoded[0] = encryptWord((String) word, key, tweak);
                         outputStream.write(encoded[0]);
                     } catch (IOException e) {
                         e.printStackTrace();
@@ -207,14 +216,17 @@ public class GenericHasher {
      * @param word the number to encrypt,  in a string
      * @return
      */
-    private byte[] encryptNumber(String word) {
+    private byte[] encryptNumber(String word, byte[] key, byte[] tweak) {
 
-        byte[] mytweak = getTweak(word); // word.getBytes();
-        byte[] mykey = getKey(word); //md.digest(word.getBytes());
+        byte[] mytweak = Arrays.copyOfRange(tweak, 0, word.length()); //getTweak(word); // word.getBytes();
+        byte[] mykey = key; //getKey(word); //md.digest(word.getBytes());
 
         FormatPreservingEncryption formatPreservingEncryption = FormatPreservingEncryptionBuilder
                 .ff1Implementation()
-                .withDomain(new GenericDomain(numbers, new GenericTransformations(numbers.availableCharacters()), new GenericTransformations(numbers.availableCharacters())))
+                .withDomain(new GenericDomain(numbers,
+                        new GenericTransformations(numbers.availableCharacters()),
+                        new GenericTransformations(numbers.availableCharacters()))
+                )
                 .withPseudoRandomFunction(new DefaultPseudoRandomFunction(mykey))
                 .withLengthRange(new LengthRange(2, word.length()+1))
                 .build();
@@ -229,16 +241,17 @@ public class GenericHasher {
      * @param word string to encrypt
      * @return
      */
-    private byte[] encryptWord(String word) {
+    private byte[] encryptWord(String word, byte[] key, byte[] tweak) {
 
-//        logger.info(word);
-
-        byte[] mytweak = getTweak(word); //word.getBytes();
-        byte[] mykey = getKey(word); //md.digest(word.getBytes());
+        byte[] mytweak = Arrays.copyOfRange(tweak, 0, word.length()); // tweak; //getTweak(word); //word.getBytes();
+        byte[] mykey = key; // getKey(word); //md.digest(word.getBytes());
 
         FormatPreservingEncryption formatPreservingEncryption = FormatPreservingEncryptionBuilder
                 .ff1Implementation()
-                .withDomain(new GenericDomain(alphabet, new GenericTransformations(alphabet.availableCharacters()), new GenericTransformations(alphabet.availableCharacters())))
+                .withDomain(new GenericDomain(alphabet,
+                        new GenericTransformations(alphabet.availableCharacters()),
+                        new GenericTransformations(alphabet.availableCharacters()))
+                )
                 .withPseudoRandomFunction(new DefaultPseudoRandomFunction(mykey))
                 .withLengthRange(new LengthRange(2, word.length()+1))
                 .build();
@@ -344,7 +357,7 @@ public class GenericHasher {
 //            }
 //        });
 
-        alphabetString = alphabetString + "-'";
+//        alphabetString = alphabetString + "-'";
 
         alphabetChars = alphabetString.toCharArray();
         logger.info("alphabet: {}", alphabetString);
@@ -365,5 +378,32 @@ public class GenericHasher {
 
     public String getDelminators() {
         return this.deliminators;
+    }
+
+    public boolean isPerItemKey() {
+        return perItemKey;
+    }
+
+    public GenericHasher setPerItemKey(boolean perItemKey) {
+        this.perItemKey = perItemKey;
+        return this;
+    }
+
+    public boolean isPerItemTweak() {
+        return perItemTweak;
+    }
+
+    public GenericHasher setPerItemTweak(boolean perItemTweak) {
+        this.perItemTweak = perItemTweak;
+        return this;
+    }
+
+    public boolean isCopyDeliminators() {
+        return copyDeliminators;
+    }
+
+    public GenericHasher setCopyDeliminators(boolean copyDeliminators) {
+        this.copyDeliminators = copyDeliminators;
+        return this;
     }
 }

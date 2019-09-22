@@ -46,9 +46,21 @@ public class SandboxApplicationTests {
 	@Test
 	public void testAddress() throws ExecutionException, InterruptedException {
 		String address = "23 walaby way, sydney, Australia";
+
+		// test encrypt with defaults
 		Future<byte[]> result = genericHasher.encrypt(address);
 		logger.info(new String(result.get()));
-		Assert.assertEquals("17 MKLMpR nFL, pVPEfY, IrKFxEtyK", new String(result.get()));
+		Assert.assertEquals("17 PåjjeI uVL, TNvnFJ, ÅQÅpv'DNå", new String(result.get()));
+
+		// encrypt with specified key, tweak
+		result = genericHasher.encrypt(address, "abcdef1234567890".getBytes(), "1234567890abcdef".getBytes());
+		logger.info(new String(result.get()));
+		Assert.assertEquals("84 päiHXU sfC, clFGKh, RzBsbChuU", new String(result.get()));
+
+		// encrypt with specified key, and altered tweak
+		result = genericHasher.encrypt(address, "abcdef1234567890".getBytes(), "abcdefghijklmnop".getBytes());
+		logger.info(new String(result.get()));
+		Assert.assertEquals("57 FXhDsz tcO, DhLyLm, PÖÅyTsgSe", new String(result.get()));
 	}
 
 
@@ -66,59 +78,56 @@ public class SandboxApplicationTests {
 		String address = "2123 1234 5431 6123";
 		Future<byte[]> result = genericHasher.encrypt(address);
 		logger.info(new String(result.get()));
-		Assert.assertEquals("2315 8970 5849 0665", new String(result.get()));
+		Assert.assertEquals("7284 5655 4690 9293", new String(result.get()));
 	}
 
 
 	@Test
 	public void testCollisions() {
 
+		final long[] processed = {0};
+
 		SequencedNumbers sequencedNumbers = new SequencedNumbers(99999L);
 		ConcurrentHashMap<String, String> resultX = new ConcurrentHashMap<>();
 		long total = sequencedNumbers.max;
 
-		List<String> input = new CopyOnWriteArrayList<>();
-
-		logger.info("generating input data");
-		while (sequencedNumbers.hasNext()) {
-			input.add(sequencedNumbers.getNext());
-		}
-
 		Instant timeStart = Instant.now();
-
 		final long[] collisions = {0};
-
 		logger.info("hashing");
-		input.stream()
-				.forEach(i -> {
-					Future<byte[]> result = genericHasher.encrypt(i);
 
-					try {
-						String collision = resultX.put(String.valueOf(result.get()), i);
+		while (sequencedNumbers.hasNext()) {
 
-						if (collision!=null) {
-							logger.warn("collision: {} == {}", i, collision);
-							collisions[0]++;
-						}
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					} catch (ExecutionException e) {
-						e.printStackTrace();
-					}
-				});
+			processed[0]++;
+
+			if (processed[0] % 100000 == 0) {
+				logger.info("processed {}", processed[0]);
+			}
+
+			String next = sequencedNumbers.getNext();
+			Future<byte[]> result = genericHasher.encrypt(next);
+
+			try {
+				String collision = resultX.put(String.valueOf(result.get()), next);
+				if (collision!=null) {
+					logger.warn("collision: {} == {}",next , collision);
+					collisions[0]++;
+				}
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			} catch (ExecutionException e) {
+				e.printStackTrace();
+			}
+
+		}
 
 
 		Instant timeEnd = Instant.now();
 
 		logger.info("encrypt rate: {}", (resultX.size()/Duration.between(timeStart, timeEnd).toSeconds()));
-		logger.info("Counting collisions");
-
-//		Assert.assertTrue(total-resultX.size()<=2);
-
-		Assert.assertEquals(0, collisions[0]);
-
 		logger.info("collision rate: {} in {}", total-resultX.size(), total);
 		logger.info("collisions: {}", collisions[0]);
+
+		Assert.assertEquals(0, collisions[0]);
 	}
 
 
@@ -150,7 +159,6 @@ public class SandboxApplicationTests {
 
 		logger.info(result[0]);
 
-
 	}
 
 
@@ -173,7 +181,7 @@ public class SandboxApplicationTests {
 		while (reader.ready()) {
 
 			String data = reader.readLine();
-//			logger.info("data: '{}'", data);
+
 			try {
 				Future<byte[]> h = genericHasher.encrypt(data);
 				totalCount++;
@@ -196,7 +204,7 @@ public class SandboxApplicationTests {
 
 
 	@Test
-	public void ccnumbersCollisions() throws IOException, ExecutionException, InterruptedException {
+	public void ccnumbersCollisions() throws IOException {
 
 		ConcurrentHashMap<String, String> resultX = new ConcurrentHashMap<>();
 
